@@ -22,6 +22,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.support.annotation.IntDef;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.format.Time;
@@ -40,6 +41,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Vector;
@@ -48,10 +51,12 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
     // Interval at which to sync with the weather, in seconds.
     // 60 seconds (1 minute) * 180 = 3 hours
-    public static final int SYNC_INTERVAL = 60 * 180;
+    //public static final int SYNC_INTERVAL = 60 * 180;
+    public static final int SYNC_INTERVAL = 20 ;
     public static final int SYNC_FLEXTIME = SYNC_INTERVAL/3;
     private static final long DAY_IN_MILLIS = 1000 * 60 * 60 * 24;
     private static final int WEATHER_NOTIFICATION_ID = 3004;
+    private static final int WEATHER_NOTIFICATION_STATUS_ID = 20;
 
 
     private static final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
@@ -66,6 +71,20 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     private static final int INDEX_MAX_TEMP = 1;
     private static final int INDEX_MIN_TEMP = 2;
     private static final int INDEX_SHORT_DESC = 3;
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({LOCATION_STATUS_OK, LOCATION_STATUS_SERVER_DOWN, LOCATION_STATUS_SERVER_INVALID,  LOCATION_STATUS_UNKNOWN,LOCATION_STATUS_INVALID})
+    public @interface LocationStatus {}
+
+    public static final int LOCATION_STATUS_OK = 0;
+    public static final int LOCATION_STATUS_SERVER_DOWN = 1;
+    public static final int
+            LOCATION_STATUS_SERVER_INVALID = 2;
+    public static final int
+            LOCATION_STATUS_UNKNOWN = 3;
+
+    public static final int
+    LOCATION_STATUS_INVALID=4;
 
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
@@ -132,6 +151,9 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
 
             if (buffer.length() == 0) {
                 // Stream was empty.  No point in parsing.
+                setLocationStatus(getContext(),LOCATION_STATUS_SERVER_DOWN);
+                //();
+
                 return;
             }
             forecastJsonStr = buffer.toString();
@@ -140,9 +162,16 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             Log.e(LOG_TAG, "Error ", e);
             // If the code didn't successfully get the weather data, there's no point in attempting
             // to parse it.
+            setLocationStatus(getContext(), LOCATION_STATUS_SERVER_DOWN);
+            //notifyNetStatus();
+
+
         } catch (JSONException e) {
             Log.e(LOG_TAG, e.getMessage(), e);
             e.printStackTrace();
+            setLocationStatus(getContext(), LOCATION_STATUS_SERVER_INVALID);
+            //notifyNetStatus();
+
         } finally {
             if (urlConnection != null) {
                 urlConnection.disconnect();
@@ -200,9 +229,26 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
         final String OWM_WEATHER = "weather";
         final String OWM_DESCRIPTION = "main";
         final String OWM_WEATHER_ID = "id";
+        final String OWM_MESSAGE_CODE = "cod";
 
         try {
             JSONObject forecastJson = new JSONObject(forecastJsonStr);
+            // do we have an error?
+            if ( forecastJson.has(OWM_MESSAGE_CODE) ) {
+                int errorCode = forecastJson.getInt(OWM_MESSAGE_CODE);
+
+                switch (errorCode) {
+                    case HttpURLConnection.HTTP_OK:
+                        break;
+                    case HttpURLConnection.HTTP_NOT_FOUND:
+                        setLocationStatus(getContext(), LOCATION_STATUS_INVALID);
+                        return;
+                    default:
+                        setLocationStatus(getContext(), LOCATION_STATUS_SERVER_DOWN);
+                        return;
+                }
+            }
+
             JSONArray weatherArray = forecastJson.getJSONArray(OWM_LIST);
 
             JSONObject cityJson = forecastJson.getJSONObject(OWM_CITY);
@@ -298,16 +344,20 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 // delete old data so we don't build up an endless history
                 getContext().getContentResolver().delete(WeatherContract.WeatherEntry.CONTENT_URI,
                         WeatherContract.WeatherEntry.COLUMN_DATE + " <= ?",
-                        new String[] {Long.toString(dayTime.setJulianDay(julianStartDay-1))});
+                        new String[]{Long.toString(dayTime.setJulianDay(julianStartDay-1))});
 
-                notifyWeather();
+                //notifyWeather();
             }
 
             Log.d(LOG_TAG, "Sync Complete. " + cVVector.size() + " Inserted");
+            setLocationStatus(getContext(), LOCATION_STATUS_OK);
+            //notifyNetStatus();
 
         } catch (JSONException e) {
             Log.e(LOG_TAG, e.getMessage(), e);
             e.printStackTrace();
+            setLocationStatus(getContext(), LOCATION_STATUS_SERVER_INVALID);
+            //notifyNetStatus();
         }
     }
 
@@ -533,4 +583,89 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static void initializeSyncAdapter(Context context) {
         getSyncAccount(context);
     }
+
+    static private  void setLocationStatus(Context c,@LocationStatus int loctaionStatus)
+    {
+        //refreshing last sync
+        SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(c);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putInt(c.getString(R.string.pref_location_status_key), loctaionStatus);
+        editor.commit();
+    }
+    private void notifyNetStatus(){
+        Context context = getContext();
+        //checking the last update and notify if it' the first of the day
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String displayNotificationsKey = context.getString(R.string.pref_location_status_key);
+        //boolean displayNotifications = prefs.getBoolean(displayNotificationsKey,
+         //       Boolean.parseBoolean(context.getString(R.string.pref_enable_notifications_default)));
+
+        {
+
+           // String lastNotificationKey = context.getString(R.string.pref_last_notification);
+            //long lastSync = prefs.getLong(lastNotificationKey, 0);
+
+//            if (System.currentTimeMillis() - lastSync >= DAY_IN_MILLIS) {
+//                // Last sync was more than 1 day ago, let's send a notification with the weather.
+//                String locationQuery = Utility.getPreferredLocation(context);
+//
+//                Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
+//
+//                // we'll query our contentProvider, as always
+//                //Cursor cursor = context.getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+//
+                {
+//                    int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+//                    double high = cursor.getDouble(INDEX_MAX_TEMP);
+//                    double low = cursor.getDouble(INDEX_MIN_TEMP);
+//                    String desc = cursor.getString(INDEX_SHORT_DESC);
+
+                     int iconId = R.drawable.ic_clear;
+                     int ArtId = R.drawable.art_clear;
+ Resources resources = context.getResources();
+                     Bitmap largeIcon = BitmapFactory.decodeResource(resources,
+                             ArtId);
+                  Bitmap smallIcon = BitmapFactory.decodeResource(resources,
+                          iconId);
+//                   String title = context.getString(R.string.app_name);
+
+
+                          // NotificationCompatBuilder is a very convenient way to build backward-compatible
+                          // notifications.  Just throw in some data.
+                          NotificationCompat.Builder mBuilder2 =
+                                  new NotificationCompat.Builder(getContext())
+                                          .setColor(resources.getColor(R.color.sunshine_light_blue))
+                                          .setSmallIcon(iconId)
+                                          .setLargeIcon(largeIcon)
+                                          .setContentTitle("status")
+                                          .setContentText("OK");
+
+                     // Make something interesting happen when the user clicks on the notification.
+                    // In this case, opening the app is sufficient.
+                    Intent resultIntent2 = new Intent(context, MainActivity.class);
+
+                    // The stack builder object will contain an artificial back stack for the
+                    // started Activity.
+                    // This ensures that navigating backward from the Activity leads out of
+                    // your application to the Home screen.
+                    TaskStackBuilder stackBuilder2 = TaskStackBuilder.create(context);
+                    stackBuilder2.addNextIntent(resultIntent2);
+                    PendingIntent resultPendingIntent =
+                            stackBuilder2.getPendingIntent(
+                                    0,
+                                    PendingIntent.FLAG_UPDATE_CURRENT
+                            );
+                    mBuilder2.setContentIntent(resultPendingIntent);
+
+                    NotificationManager mNotificationManager =
+                            (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+                    // WEATHER_NOTIFICATION_ID allows you to update the notification later on.
+                     mNotificationManager.notify(WEATHER_NOTIFICATION_STATUS_ID, mBuilder2.build());
+
+
+                }
+
+            }
+        }
+
 }

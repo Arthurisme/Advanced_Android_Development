@@ -1,0 +1,27 @@
+//One question is :
+//on the 4.22, why setting-loction can not pass change to detail view?
+
+2
+To open a new window(view), it is said using a intent. so if i using a new windows.class, what happen.
+
+3
+which 2384 testing have make all date is same in listview?
+
+4
+I do add a cusoradapter to show the same listview in detailActivity as in MainActivity(ForecastFragment)
+
+5
+viewType = getItemViewType(cursor.getPosition());   do  a study
+result: if one of the listview need have different view showing,   using getItemViewType assign this
+listview item with a different view.
+
+6,change todys's view make icon become larger.
+
+7,Main project Directory now transferred to Mac.By 20150324
+8, I studyed how to remember the postion when rotate big screen machine, now let me do in small machine.
+
+9,The autometaclly active today layout can be done by another way.(postion smooth scrool to today)
+
+10; if I delete the android: name in activity_main.xml, and modifing the code in main.java, how can i do this make the app run as modified before?
+
+11, learn to debug while :1, change putInt to putLong. 2, uncheck //updateEmptyView() in onLocationChanged();
