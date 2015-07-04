@@ -276,7 +276,8 @@ static public boolean isNetworkAvailable(Context c) {
     return activeNetwork != null &&
             activeNetwork.isConnectedOrConnecting();
 }
-    @SuppressWarnings("ResourceType")
+     @SuppressWarnings("ResourceType")
+
     static public @SunshineSyncAdapter.LocationStatus  int getLocationStatus(Context c)
     {
         SharedPreferences sp=PreferenceManager.getDefaultSharedPreferences(c);
